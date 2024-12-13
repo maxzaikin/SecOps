@@ -61,6 +61,41 @@ Get-Log-Archivation -OldFilesAge 0 -OldCabsAge 0 -LogFilePath 'C:\Temp\log.log'
 5. Completion:
   - Writes an end message to the log file upon successful execution.
 
+### Configure audit policy for control access to the script file
+
+1. Enable Object Access Auditing
+```powershell
+auditpol /set /subcategory:"File System" /success:enable /failure:enable
+```
+
+2. Check config
+```powershell
+auditpol /get /category:"Object Access"
+```
+
+3. Enable audit for the script file
+```powershell
+# Path to the script file
+$filePath = "C:\Path\To\Get-Log-Archivation.ps1"
+
+# Set auditing rules for Everyone (Success and Modify Access)
+icacls $filePath /setaudit Everyone:(OI)(CI)(M) /t /c
+```
+
+4. Check Audit event logs for the messages
+```powershell
+# Define variables
+$LogName = "Security"
+$EventID = 4663
+$FilePath = "C:\Path\To\Get-Log-Archivation.ps1"
+
+# Filter and display events
+Get-WinEvent -LogName $LogName | Where-Object {
+    $_.Id -eq $EventID -and $_.Message -match $FilePath
+} | Select-Object TimeCreated, Id, Message
+
+```
+
 ### ⚠️ Disclaimer
 
  All scripts are provided as-is with no implicit warranty or support.
