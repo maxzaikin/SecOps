@@ -83,6 +83,9 @@ icacls $filePath /setaudit Everyone:(OI)(CI)(M) /t /c
 ```
 
 4. Check Audit event logs for the messages
+
+- Event ID: 4663 (File Access)
+
 ```powershell
 # Define variables
 $LogName = "Security"
