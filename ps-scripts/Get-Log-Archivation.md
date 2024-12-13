@@ -61,6 +61,18 @@ Get-Log-Archivation -OldFilesAge 0 -OldCabsAge 0 -LogFilePath 'C:\Temp\log.log'
 5. Completion:
   - Writes an end message to the log file upon successful execution.
 
+### ⚠️ IMPORTANT: SECURITY RISK MITIGATION
+
+1. Use a Regular User Account:
+   - If you plan to schedule this script using a task scheduler, ensure it runs under a non-privileged, regular user account. Avoid using administrative or highly privileged accounts.
+
+2. Set Proper Permissions:
+   - Grant the regular user account read/write access to the directories containing logs and the location where the script will store its action logs.
+   - Restrict access to these folders for all other users to minimize exposure.
+
+3. Disable Interactive Logon:
+   - For the user account under which this script will run, ensure interactive logon is disabled. This prevents the account from being used to log into systems directly, reducing the risk of unauthorized access.
+
 ### Configure audit policy for control access to the script file
 
 1. Enable Object Access Auditing
@@ -96,6 +108,16 @@ $FilePath = "C:\Path\To\Get-Log-Archivation.ps1"
 Get-WinEvent -LogName $LogName | Where-Object {
     $_.Id -eq $EventID -and $_.Message -match $FilePath
 } | Select-Object TimeCreated, Id, Message
+
+# Export to CSV
+Get-WinEvent -LogName $LogName | Where-Object {
+    $_.Id -eq $EventID -and $_.Message -match $FilePath
+} | Select-Object TimeCreated, Id, Message | Export-Csv -Path "C:\Temp\FilteredEvents.csv" -NoTypeInformation
+
+# Export to TXT
+Get-WinEvent -LogName $LogName | Where-Object {
+    $_.Id -eq $EventID -and $_.Message -match $FilePath
+} | Select-Object TimeCreated, Id, Message | Out-File -FilePath "C:\Temp\FilteredEvents.txt"
 
 ```
 
