@@ -20,7 +20,7 @@ Security operations are critical to ensuring that enterprise environments remain
 ## 🛠️ Getting Started
 1. **Clone this repository**:
    ```bash
-   [git clone https://github.com/yourusername/security-operations-toolkit.git](https://github.com/maxzaikin/SecOps.git)
+   git clone https://github.com/yourusername/security-operations-toolkit.git
    ```
 2. **Read the documentation** for each script or tool to understand prerequisites and configurations.
 3. **Contribute by submitting** issues or pull requests if you have improvements or additional resources to share.
