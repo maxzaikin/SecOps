@@ -2,6 +2,7 @@
 
 ## Overview
 The **`Get-Log-Archivation`** function automates the archiving of old log files and maintains folder hygiene by compressing and removing outdated files. It is designed to ensure efficient log file management in IT infrastructure.
+Besides material written in the description below, you can also read my article that i published on linked in which I review this problem in slightly different angle [https://www.linkedin.com/pulse/mitigating-security-risks-change-requests-maks-zaikin-lh6xe/?trackingId=JsuYjAPi4B7pWuH6T3oVNw%3D%3D](Mitigating Security Risks in IT Change Requests)
 
 ---
 
