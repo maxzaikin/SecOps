@@ -42,7 +42,7 @@ function Get-RandomPassphrase {
         # Convert to string
         $hex = ([System.BitConverter]::ToString($hashBytes)).Replace('-', '')
 
-        Write-Output "🔐: $($hex)"
+        Write-Output "🔐 $($hex)"
     }
 
     END {
