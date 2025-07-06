@@ -5,12 +5,7 @@
   // A relative path is best for team collaboration.
   "python.defaultInterpreterPath": ".\\.venv\\Scripts\\python.exe", // For Windows
   // "python.defaultInterpreterPath": "./.venv/bin/python", // For macOS/Linux
-
-  // --- Code Analysis & Intellisense (Pylance) ---
-  // Tells Pylance where our source root is, which enables clean absolute imports.
-  // Example: `from core import config` instead of `from ..core import config`.
-  "python.analysis.extraPaths": ["./src"],
-
+  
   // --- Linter & Formatter Configuration (Ruff) ---
   // Ruff is an extremely fast linter and formatter, written in Rust.
   // It replaces Pylint, Flake8, Black, and isort with a single tool.
