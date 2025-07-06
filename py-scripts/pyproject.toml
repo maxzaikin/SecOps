@@ -1,0 +1,41 @@
+[project]
+name = "py-scripts"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pandas>=2.3.0",
+    "python-dotenv>=1.1.1",
+    "requests>=2.32.4",
+    "ruff>=0.12.2",
+]
+
+# --- Tool-specific Configuration ---
+[tool.ruff]
+# Set the maximum line length. 88 for Black compatibility.
+line-length = 88
+# Indicates that our source code is in the 'src' directory.
+# src = ["src"]
+# Specifies the target Python version for compatibility checks.
+target-version = "py312"
+
+[tool.ruff.lint]
+# Select a comprehensive set of rules for high code quality.
+# E, F: Standard pyflakes errors (must-have)
+# W: Pycodestyle warnings
+# I: Isort import sorting
+# C90: McCabe complexity checks
+# B: Flake8-bugbear (finds likely bugs)
+# TID: Flake8-tidy-imports (enforces clean import styles)
+select = ["E", "F", "W", "I", "C90", "B", "TID"]
+ignore = []
+# You can add specific rules to ignore if they conflict with your style.
+# e.g., ignore = ["E501"]
+
+[tool.ruff.format]
+# Ensures Ruff's formatter is 100% compatible with Black's style.
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
