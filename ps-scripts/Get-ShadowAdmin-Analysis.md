@@ -1,8 +1,8 @@
-# 🕵️‍♂️ Get-ShadowAdmin-Analysis-Ext.ps1
+# 🕵️‍♂️ AD ShadowAdmin Analysis-Ext Toolkit
 
 ## 📘 Overview
 
-The **`Get-ShadowAdmin-Analysis-Ext`** PowerShell script performs an in-depth audit of a specified Active Directory (AD) user to detect **shadow administrator** access paths. These are indirect privilege paths that result from **nested group memberships**.
+The [**`Get-ShadowAdmin-Analysis-Ext`**](https://github.com/maxzaikin/SecOps/blob/main/ps-scripts/Get-ShadowAdmin-Analysis-Ext.ps1) and [**`Get-ShadowAdmin-Analysis`**](https://github.com/maxzaikin/SecOps/blob/main/ps-scripts/Get-ShadowAdmin-Analysis.ps1)PowerShell scripts performs an in-depth audit of a specified Active Directory (AD) user to detect **shadow administrator** access paths. These are indirect privilege paths that result from **nested group memberships**.
 
 This extended version enhances the original functionality by:
 
