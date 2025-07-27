@@ -1,4 +1,4 @@
-# 🕵️‍♂️ AD ShadowAdmin Analysis-Ext Toolkit
+# 🕵️‍♂️ AD ShadowAdmin Analysis PS Toolkit
 
 ## 📘 Overview
 
