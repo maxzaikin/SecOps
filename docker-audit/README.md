@@ -61,7 +61,7 @@ This helps map which services communicate internally versus which are exposed ex
 ### 3️⃣ Aggregate Data for Central Analysis
 
 Combine all collected JSON files into a single dataset for easier cross-reference and visualization.  
-(An upcoming Jupyter Notebook will be shared here for automated merging and visualization.)
+[docker-audit.ipynb](https://github.com/maxzaikin/SecOps/tree/main/docker-audit/docker-audit.ipynb)
 
 ---
 
