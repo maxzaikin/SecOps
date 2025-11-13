@@ -143,10 +143,8 @@ After collecting all information:
 
 - 🚀 **Terminal** - best old-scholl tool
 - 🕵️ **Trivy** — container vulnerability scanner  
-- 🧪 **Grype** — alternative vulnerability scanner  
 - 🧰 **Dockle** — Docker image best practices linter  
-- 🧱 **Hadolint** — Dockerfile linter  
-- 📊 **jq** — for JSON parsing and analysis  
+- 📊 **VSCode** — for JSON parsing and analysis
 
 ---
 
