@@ -126,6 +126,7 @@ To perform a **comprehensive security audit**, include the following:
 | 🔑 **Secrets Audit** | Scan for secrets inside environment or config files | `grep -R "password" /etc 2>/dev/null` |
 | 🔗 **Inter-Container Communication** | Ensure no unnecessary open links between sensitive and non-sensitive services | cross-reference network JSON |
 | 🧱 **Firewall / IPTables Rules** | Review internal firewall configuration | `iptables -L -n` |
+| 🧱 **Docker container labels | Review labels check for anomalies | `docker inspect --format='{{json .Config.Labels}}' <container_id>` |
 
 ---
 
