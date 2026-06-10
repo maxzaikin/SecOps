@@ -45,7 +45,7 @@ OT-System-Collector script was designed and developed by me, but throughout the 
 
 The inclusion of "GPT LLM" in the author field is my way of acknowledging the significant impact that modern AI-assisted development tools have had on this project. Without these technologies, developing, testing, documenting, and refining a tool of this scope would have required substantially more time and effort.
 
-This acknowledgement should not be interpreted as transferring authorship. Rather, it reflects my appreciation for the researchers, engineers, and organizations whose work made these technologies possible and helped accelerate the development of OT-Sentinel.
+This acknowledgement should not be interpreted as transferring authorship. Rather, it reflects my appreciation for the researchers, engineers, and organizations whose work made these technologies possible and helped accelerate the development of OT-System-Collector.
 
 Like any engineering tool, LLMs are most effective when combined with human expertise, critical thinking, testing, and validation. All design decisions, implementation choices, testing activities, and final acceptance of the code remain the responsibility of the project author.
 
