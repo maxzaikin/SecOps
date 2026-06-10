@@ -31,6 +31,26 @@ The collector is designed to support the following Microsoft Windows operating s
 
 Community feedback, bug reports, and compatibility test results are welcome.
 
+## Acknowledgements
+
+You may notice the following line in the script header:
+
+```text
+AUTHOR: Maks V. Zaikin & GPT LLM
+```
+
+This attribution was included intentionally.
+
+OT-System-Collector script was designed and developed by me, but throughout the development process I actively leveraged Large Language Model (LLM) technology as an engineering assistant. The LLM was used to help review ideas, validate implementation approaches, improve compatibility across Windows versions, identify potential edge cases, and accelerate documentation development.
+
+The inclusion of "GPT LLM" in the author field is my way of acknowledging the significant impact that modern AI-assisted development tools have had on this project. Without these technologies, developing, testing, documenting, and refining a tool of this scope would have required substantially more time and effort.
+
+This acknowledgement should not be interpreted as transferring authorship. Rather, it reflects my appreciation for the researchers, engineers, and organizations whose work made these technologies possible and helped accelerate the development of OT-Sentinel.
+
+Like any engineering tool, LLMs are most effective when combined with human expertise, critical thinking, testing, and validation. All design decisions, implementation choices, testing activities, and final acceptance of the code remain the responsibility of the project author.
+
+---
+
 ## Key Features
 
 ### Agentless Operation
