@@ -47,7 +47,7 @@ The inclusion of "GPT LLM" in the author field is my way of acknowledging the si
 
 This acknowledgement should not be interpreted as transferring authorship. Rather, it reflects my appreciation for the researchers, engineers, and organizations whose work made these technologies possible and helped accelerate the development of OT-System-Collector.
 
-Like any engineering tool, LLMs are most effective when combined with human expertise, critical thinking, testing, and validation. All design decisions, implementation choices, testing activities, and final acceptance of the code remain the responsibility of the project author.
+Like any engineering tool, LLMs are most effective when combined with human expertise, critical thinking, testing, and validation. All design decisions, implementation choices, testing activities, and final acceptance of the code remain the responsibility of me myself.
 
 ---
 
