@@ -109,7 +109,7 @@ function Get-EventIdInventory {
         # PowerShell 7/Core. Without a BOM, Excel often mis-detects the encoding
         # when the CSV is just double-clicked and shows Cyrillic text (usernames,
         # localized event descriptions) as garbage.
-        $Utf8BomEncoding = New-Object System.Text.UTF8Encoding($true)
+        $Utf8BomEncoding = [System.Text.UTF8Encoding]::new($true)
 
         function Write-Info {
             param(
@@ -164,67 +164,129 @@ function Get-EventIdInventory {
 
             $logCounter++
 
+            # Cheap, best-effort count just for a nicer progress bar - not
+            # required for correctness, so failures here are silently ignored.
+            $totalHint = $null
+            try {
+                $logInfo = Get-WinEvent -ListLog $log -ErrorAction SilentlyContinue
+                if ($logInfo) {
+                    $totalHint = $logInfo.RecordCount
+                    if ($MaxEventsPerLog -gt 0) { $totalHint = [Math]::Min($totalHint, $MaxEventsPerLog) }
+                }
+            } catch { }
+
             Write-Progress -Activity "Collecting events by log" -Status "Log: $log ($logCounter)" -Id 1
             Write-Info "Processing log '$log'..."
 
             try {
-                $params = @{
-                    LogName     = $log
-                    ErrorAction = 'Stop'
-                }
-                if ($MaxEventsPerLog -gt 0) { $params['MaxEvents'] = $MaxEventsPerLog }
+                # Read one record at a time via the lower-level EventLogReader
+                # API instead of Get-WinEvent's own bulk materialization.
+                #
+                # Real-world logs (System in particular, on machines with
+                # third-party/OEM drivers - Realtek, Intel, Dell, etc.) often
+                # contain individual records whose message-table reference is
+                # broken (uninstalled/mismatched provider). Get-WinEvent reads
+                # the whole log in one call, and a SINGLE such record aborts
+                # the entire call with an error like "Не удалось найти строку
+                # описания для ссылки на параметр (%1)" / "The description for
+                # Event ID ... cannot be found" - even though every other
+                # record in that log is perfectly fine and the account has
+                # full read rights. Reading record-by-record lets us skip just
+                # the bad record(s) and keep the rest of the log.
+                $query  = [System.Diagnostics.Eventing.Reader.EventLogQuery]::new($log, [System.Diagnostics.Eventing.Reader.PathType]::LogName)
+                $query.ReverseDirection = $true   # newest-first, matches Get-WinEvent's default (no -Oldest)
+                $reader = [System.Diagnostics.Eventing.Reader.EventLogReader]::new($query)
 
-                $events = @(Get-WinEvent @params)
-                $total  = $events.Count
                 $i = 0
+                $totalUnreadable      = 0   # reported at the end - every record skipped over the whole log
+                $consecutiveUnreadable = 0  # reset on every successful read - the actual "is the reader stuck" signal
 
-                foreach ($ev in $events) {
-                    $i++
-                    if ($i % 1000 -eq 0 -or $i -eq $total) {
-                        Write-Progress -Activity "Log: $log" -Status "Event $i of $total" `
-                            -PercentComplete (($i / [Math]::Max($total, 1)) * 100) -Id 2 -ParentId 1
-                    }
+                try {
+                    while ($true) {
+                        if ($MaxEventsPerLog -gt 0 -and $i -ge $MaxEventsPerLog) { break }
 
-                    $key = "$($ev.LogName)|$($ev.Id)"
-
-                    if (-not $results.Contains($key)) {
-                        $desc = $null
                         try {
-                            $msg = $ev.Message
-                            if ($msg) {
-                                $desc = ($msg -split "`r?`n")[0].Trim()
-                                if ($desc.Length -gt 200) { $desc = $desc.Substring(0, 200) + '...' }
-                            }
+                            $ev = $reader.ReadEvent()
                         } catch {
-                            $desc = '(description unavailable - provider/manifest not found)'
+                            # This one record could not be read at all - skip it
+                            # and move on to the next. A handful of these
+                            # scattered across a large log (a few bad records
+                            # from one flaky OEM driver among tens of thousands
+                            # of good ones) is normal and expected - it is a RUN
+                            # of consecutive failures that would mean the reader
+                            # is actually stuck, so only that resets to zero on
+                            # every success and trips the safety valve here.
+                            $totalUnreadable++
+                            $consecutiveUnreadable++
+                            if ($consecutiveUnreadable -gt 200) {
+                                throw "Too many unreadable records in a row ($consecutiveUnreadable) - aborting this log. Last error: $($_.Exception.Message)"
+                            }
+                            continue
                         }
-                        if (-not $desc) { $desc = '(description unavailable - provider/manifest not found)' }
 
-                        $results[$key] = [ordered]@{
-                            LogName      = $ev.LogName
-                            EventID      = $ev.Id
-                            ProviderName = $ev.ProviderName
-                            Level        = $ev.LevelDisplayName
-                            Description  = $desc
-                            Users        = New-Object System.Collections.Generic.HashSet[string]
-                            Count        = 0
-                            FirstSeen    = $ev.TimeCreated
-                            LastSeen     = $ev.TimeCreated
+                        if ($null -eq $ev) { break }   # end of log reached
+                        $consecutiveUnreadable = 0
+
+                        try {
+                            $i++
+                            if ($i % 1000 -eq 0) {
+                                $status  = if ($totalHint) { "Event $i of ~$totalHint" } else { "Event $i" }
+                                $percent = if ($totalHint) { [Math]::Min(100, ($i / [Math]::Max($totalHint, 1)) * 100) } else { 0 }
+                                Write-Progress -Activity "Log: $log" -Status $status -PercentComplete $percent -Id 2 -ParentId 1
+                            }
+
+                            $key = "$($ev.LogName)|$($ev.Id)"
+
+                            if (-not $results.Contains($key)) {
+                                $desc = $null
+                                try {
+                                    $msg = $ev.Message
+                                    if ($msg) {
+                                        $desc = ($msg -split "`r?`n")[0].Trim()
+                                        if ($desc.Length -gt 200) { $desc = $desc.Substring(0, 200) + '...' }
+                                    }
+                                } catch {
+                                    # The record itself read fine, but its message
+                                    # text specifically can't be resolved - same
+                                    # root cause as above (broken provider/manifest
+                                    # reference), just caught at a finer grain here.
+                                    $desc = '(description unavailable - provider/manifest not found)'
+                                }
+                                if (-not $desc) { $desc = '(description unavailable - provider/manifest not found)' }
+
+                                $results[$key] = [ordered]@{
+                                    LogName      = $ev.LogName
+                                    EventID      = $ev.Id
+                                    ProviderName = $ev.ProviderName
+                                    Level        = $ev.LevelDisplayName
+                                    Description  = $desc
+                                    Users        = New-Object System.Collections.Generic.HashSet[string]
+                                    Count        = 0
+                                    FirstSeen    = $ev.TimeCreated
+                                    LastSeen     = $ev.TimeCreated
+                                }
+                            }
+
+                            $entry = $results[$key]
+                            $entry.Count++
+                            if ($ev.TimeCreated -and $ev.TimeCreated -lt $entry.FirstSeen) { $entry.FirstSeen = $ev.TimeCreated }
+                            if ($ev.TimeCreated -and $ev.TimeCreated -gt $entry.LastSeen)  { $entry.LastSeen  = $ev.TimeCreated }
+
+                            if ($ev.UserId) {
+                                $userName = Resolve-UserName -Sid $ev.UserId
+                                if ($userName) { [void]$entry.Users.Add($userName) }
+                            }
+                        } finally {
+                            $ev.Dispose()
                         }
                     }
-
-                    $entry = $results[$key]
-                    $entry.Count++
-                    if ($ev.TimeCreated -and $ev.TimeCreated -lt $entry.FirstSeen) { $entry.FirstSeen = $ev.TimeCreated }
-                    if ($ev.TimeCreated -and $ev.TimeCreated -gt $entry.LastSeen)  { $entry.LastSeen  = $ev.TimeCreated }
-
-                    if ($ev.UserId) {
-                        $userName = Resolve-UserName -Sid $ev.UserId
-                        if ($userName) { [void]$entry.Users.Add($userName) }
-                    }
+                } finally {
+                    $reader.Dispose()
                 }
 
-                Write-Info ("Log '{0}': {1} event(s) read, {2} unique EventID(s) so far." -f $log, $total, $results.Count)
+                $summary = "Log '{0}': {1} event(s) read, {2} unique EventID(s) so far." -f $log, $i, $results.Count
+                if ($totalUnreadable -gt 0) { $summary += " ({0} unreadable record(s) skipped)" -f $totalUnreadable }
+                Write-Info $summary
 
             } catch {
                 $errMsg = "Log '$log': $($_.Exception.Message)"
