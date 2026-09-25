@@ -16,9 +16,13 @@ function Get-EventIdInventory {
         those the Users column will simply be empty; this is a property of the
         event source, not a script defect.
 
-        In addition to writing a CSV, the function emits the collected inventory
-        objects to the pipeline, so it composes like a normal cmdlet, e.g.:
-            Get-EventIdInventory -LogNames Security | Where-Object Count -gt 1000
+        The function does NOT emit the collected inventory objects to the
+        pipeline - only a short run summary (start/end time, duration, logs
+        and events processed, CSV path) is printed to the console at the
+        end. The full data lives in the CSV; if you need it back as
+        objects for further filtering in the same session, read it back
+        with Import-Csv against the printed CSV path, e.g.:
+            Import-Csv $csvPath | Where-Object Count -gt 1000
 
         Assumes it is always run interactively by a person in a PowerShell 7
         console - all progress/status messages go straight to the console via
@@ -42,6 +46,27 @@ function Get-EventIdInventory {
         Path to the resulting CSV. Defaults to a timestamped file named after
         the computer, in the current directory.
 
+    .PARAMETER HighRateThreshold
+        Events-per-minute (Count / max(DurationMinutes, 1)) at or above which
+        a row's "Density" column is rated "High". Default 1.0 (= roughly one
+        event/minute sustained, i.e. ~1440/day and up) - a real-world example
+        of "High" at a much larger scale: a flooding 4673 Sensitive-Privilege-
+        Use stream on a busy workstation ran at dozens to thousands of
+        events/minute.
+
+    .PARAMETER MidRateThreshold
+        Events-per-minute at or above which (and below HighRateThreshold) a
+        row's "Density" column is rated "Mid" instead of "Low". Default 0.05
+        (= roughly one event every 20 minutes, ~72/day).
+
+    .PARAMETER MinCountForDensity
+        Rows with fewer than this many total occurrences are always rated
+        "Low" density, regardless of the rate math. Default 3 - a couple of
+        occurrences over any window isn't a "flow" to measure a density for,
+        it's just a couple of data points (and without this floor, a single
+        occurrence with DurationMinutes = 0 would otherwise divide out to an
+        artificially "High" rate).
+
     .EXAMPLE
         Get-EventIdInventory
         Processes every non-empty log, up to 50000 events each.
@@ -56,9 +81,120 @@ function Get-EventIdInventory {
         without reading any events or writing any file.
 
     .NOTES
-        Version: 1.1
+        Version: 1.5
         Author : M. Zaikin
-        Date   : 22-Sep-2026
+        Date   : 25-Sep-2026
+
+        v1.5 CHANGES:
+        - New "EventsPerMinute" and "Density" columns, derived from Count and
+          the v1.4 DurationMinutes - a first-pass, self-contained answer to
+          "is this row's traffic High/Mid/Low", computed purely from what the
+          script already collected (no SIEM coverage data, no baseline,
+          consistent with how this tool is meant to be used).
+        - EventsPerMinute = Count / max(DurationMinutes, 1) - the 1-minute
+          floor on the denominator avoids a divide-by-zero (DurationMinutes
+          is 0 when every occurrence landed in the same instant) and avoids a
+          handful of same-minute occurrences producing an absurdly inflated
+          rate.
+        - Density buckets EventsPerMinute against -HighRateThreshold (default
+          1.0/min) and -MidRateThreshold (default 0.05/min), all three
+          tunable per run - see .PARAMETER. Rows with Count below
+          -MinCountForDensity (default 3) are always "Low": a couple of
+          occurrences anywhere in the window isn't a "flow" worth rating.
+          Density is "Unknown" (EventsPerMinute blank) only in the rare case
+          where DurationMinutes itself couldn't be computed (every occurrence
+          of that row was missing a TimeCreated) - there's no window to rate
+          a density against at all in that case.
+        - This is a starting point, not a verdict - it says nothing about
+          whether a row is noise or a genuine misconfiguration on its own
+          (High density is completely normal for some providers, e.g.
+          telemetry/heartbeat events); it's meant to be read together with
+          Task/Keywords/SampleEventData and compared across Workstation, per
+          the methodology already captured in the project doc.
+
+        v1.4 CHANGES:
+        - New "DurationMinutes" column: minutes between FirstSeen and
+          LastSeen for that (LogName, Provider, EventID) row, rounded to 2
+          decimals. A quick way to see whether a high Count is spread over
+          hours/days (routine background chatter) or crammed into a very
+          short window (a burst worth a closer look, or a log that's
+          rotating too fast to hold real history - see the Security/4673
+          note further down).
+        - The function no longer dumps its collected objects to the
+          pipeline/console at the end (previously the last line of END was
+          a bare "$export", which - when the function is called without
+          capturing its output, i.e. normal interactive use - printed the
+          entire in-memory object list to the console as a big per-object
+          field dump). Replaced with a short, fixed-format run summary:
+          start time, end time, duration, how many logs were attempted vs.
+          fully processed, how many events were read in total, how many
+          unique rows ended up in the CSV, and the resolved CSV path. The
+          CSV itself is unaffected - it still gets every column. If you
+          need the data back as PowerShell objects in the same session,
+          Import-Csv the printed path.
+
+        v1.3 CHANGES - aimed specifically at a downstream analysis question
+        this data feeds: with no SIEM ingestion/coverage report and no
+        baseline available to compare against, is a given (log, EventID) row
+        (a) operational noise with no security value, or (b) a symptom of a
+        misconfiguration - and if (b), is that misconfiguration local to one
+        machine or applied fleet-wide via AD/GPO? None of that can be judged
+        from a bare EventID + first line of text, so this version captures
+        more of what each event itself already carries:
+        - Aggregation key now includes ProviderName: "LogName|Provider|Id".
+          The same numeric EventID means different things under different
+          providers writing to the same log (EventID is only unique within
+          one provider's manifest) - the old "LogName|Id" key silently
+          merged unrelated events that happened to share a number.
+        - Description now keeps the FULL message (newlines flattened to a
+          single line with " | "), not just the first line, truncated at a
+          much longer 800 chars instead of 200 - the parameter values that
+          distinguish "routine" from "worth a look" for the same EventID
+          (account name, process path, target object, privilege list, ...)
+          are frequently on the second/third line of Security audit messages
+          and were being discarded entirely before.
+        - New "SampleEventData" column: a Name=Value list parsed straight
+          from one occurrence's raw XML (.ToXml()), independent of whether
+          ".FormatDescription()" resolves at all. This is the fallback for
+          the "broken manifest" providers (OEM drivers etc.) where
+          Description stays "(description unavailable...)" forever -
+          .ToXml() needs no message-table lookup, so structured parameter
+          data (ProcessName, TargetUserName, PrivilegeList, IpAddress, ...)
+          is still recoverable even then. Works against both the classic
+          <EventData> shape and the newer manifest-based <UserData> shape.
+        - New "Task", "TaskRaw", "Opcode" and "Keywords" columns. On the
+          Security log in particular, Task/Keywords is how a raw EventID
+          maps back to a specific Advanced Audit Policy subcategory (e.g.
+          "Sensitive Privilege Use" / "Audit Success") - the subcategories
+          are what's actually configured via GPO, so this is the concrete
+          hook for telling "this fires because subcategory X is enabled for
+          everyone via GPO" apart from "this fires only here for some local
+          reason". TaskRaw (numeric) is kept alongside Task (display name)
+          because TaskDisplayName is null for a fair number of providers.
+        - Level/LevelRaw/Task/TaskRaw/Opcode/Keywords are now all read via a
+          small try/catch wrapper (previously only Description/FormatDescription
+          had this). A provider with a broken manifest can throw on ANY of its
+          display-name properties, not just Message/FormatDescription - and
+          since these reads happen inside the same per-event try block that
+          aborts the whole log on an uncaught exception, an unguarded read of
+          one of them could reintroduce the exact "one bad record kills the
+          whole log" failure mode v1.1 fixed for the message text alone.
+
+        v1.2 CHANGES (found via real-world runs against System/Security logs
+        with tens of thousands of events):
+        - Description was empty in 100% of rows. Root cause: records read via
+          EventLogReader.ReadEvent() are bare EventLogRecord objects - the
+          ".Message" convenience property (which PowerShell's own Get-WinEvent
+          output normally exposes) is not reliably populated on them. Fixed by
+          calling ".FormatDescription()" directly instead of ".Message".
+        - Description is now retried on later occurrences of the same
+          (LogName, EventID) pair if the first occurrence encountered happened
+          to be one whose own message couldn't be resolved, instead of
+          permanently locking in the placeholder from that first record.
+        - Added a raw numeric "LevelRaw" column alongside the localized
+          "Level" (LevelDisplayName) text, since LevelDisplayName is not
+          resolved for every provider (some show a raw digit or nothing) -
+          LevelRaw is reliable for machine comparison/joins.
 
         WHICH ACCOUNT TO RUN THIS AS
 
@@ -97,11 +233,24 @@ function Get-EventIdInventory {
 
         [int]$MaxEventsPerLog = 50000,
 
-        [string]$OutputCsv = ".\EventIdInventory_$($env:COMPUTERNAME)_$(Get-Date -Format yyyyMMdd_HHmmss).csv"
+        [string]$OutputCsv = ".\EventIdInventory_$($env:COMPUTERNAME)_$(Get-Date -Format yyyyMMdd_HHmmss).csv",
+
+        [double]$HighRateThreshold = 1.0,
+
+        [double]$MidRateThreshold = 0.05,
+
+        [int]$MinCountForDensity = 3
     )
 
     BEGIN {
         $ErrorActionPreference = 'Stop'
+
+        # Captured here (as early as possible) rather than in END, so the
+        # run summary's "Start time" reflects when the call actually began,
+        # not just when the last log finished.
+        $ScriptStartTime = Get-Date
+        $totalEventsProcessed = 0   # summed across all logs, for the run summary
+        $logsProcessedOk      = 0   # logs that finished without hitting the outer catch
 
         # Always write CSV text as UTF-8 WITH a BOM via .NET directly, rather
         # than relying on the cmdlet's -Encoding UTF8 switch: that switch means
@@ -135,9 +284,92 @@ function Get-EventIdInventory {
             }
         }
 
+        function Get-SafeDisplayName {
+            # Wraps a single property read so a provider with a broken/missing
+            # manifest (throws on LevelDisplayName, TaskDisplayName, etc.) can't
+            # blow up the per-event try block that owns it and abort the whole log.
+            param([Parameter(Mandatory)][scriptblock]$Getter)
+            try { & $Getter } catch { $null }
+        }
+
+        function Get-EventDataSummary {
+            # Pulls a Name=Value summary straight out of one occurrence's raw XML
+            # (.ToXml()), independent of whether FormatDescription()/the message
+            # table resolves at all. This is the fallback for "broken manifest"
+            # providers where Description never resolves - .ToXml() needs no
+            # message-table lookup, so the structured parameter values are still
+            # recoverable. Handles both the classic <EventData><Data Name="..">
+            # shape and the newer, provider-specific <UserData> manifest shape.
+            param(
+                [Parameter(Mandatory)][System.Diagnostics.Eventing.Reader.EventRecord]$Event,
+                [int]$MaxLength = 600
+            )
+            try {
+                [xml]$xml = $Event.ToXml()
+            } catch {
+                return $null
+            }
+
+            $pairs = New-Object System.Collections.Generic.List[string]
+
+            try {
+                # PowerShell's XML adapter exposes child elements as properties by
+                # their local (namespace-stripped) name, so $xml.Event.EventData
+                # works despite the default event-schema namespace on every
+                # element in this document.
+                $dataNodes = @($xml.Event.EventData.Data)
+                foreach ($d in $dataNodes) {
+                    if ($null -eq $d) { continue }
+                    if ($d -is [string]) {
+                        # <Data>value</Data> with no Name attribute
+                        if (-not [string]::IsNullOrWhiteSpace($d)) { $pairs.Add($d) }
+                        continue
+                    }
+                    $name  = $d.Name
+                    $value = $d.'#text'
+                    if ([string]::IsNullOrWhiteSpace($value)) { continue }
+                    if ($name) { $pairs.Add("$name=$value") } else { $pairs.Add($value) }
+                }
+            } catch { }
+
+            if ($pairs.Count -eq 0) {
+                # No usable <EventData> - try <UserData> instead. Its schema is
+                # entirely provider-specific, so walk every leaf element
+                # generically rather than assuming field names.
+                try {
+                    $userData = $xml.Event.UserData
+                    if ($userData) {
+                        $walk = {
+                            param($Node)
+                            foreach ($child in $Node.ChildNodes) {
+                                if ($child.NodeType -ne [System.Xml.XmlNodeType]::Element) { continue }
+                                $childElements = @($child.ChildNodes | Where-Object { $_.NodeType -eq [System.Xml.XmlNodeType]::Element })
+                                if ($childElements.Count -gt 0) {
+                                    & $walk $child
+                                } else {
+                                    $val = $child.InnerText
+                                    if (-not [string]::IsNullOrWhiteSpace($val)) {
+                                        $pairs.Add("$($child.LocalName)=$val")
+                                    }
+                                }
+                            }
+                        }
+                        & $walk $userData
+                    }
+                } catch { }
+            }
+
+            if ($pairs.Count -eq 0) { return $null }
+
+            $summary = ($pairs -join '; ') -replace "`r?`n", ' '
+            if ($summary.Length -gt $MaxLength) { $summary = $summary.Substring(0, $MaxLength) + '...' }
+            return $summary
+        }
+
         # Aggregation state, shared across process{} invocations for this call
-        $results = [ordered]@{}   # key "LogName|Id" -> aggregated info
+        $results = [ordered]@{}   # key "LogName|Provider|Id" -> aggregated info
         $errors  = New-Object System.Collections.Generic.List[string]
+        $DescriptionUnavailable = '(description unavailable - provider/manifest not found)'
 
         # Resolve the default log list ONLY if nothing is going to be bound via
         # argument or pipeline - otherwise process{} handles whatever comes in.
@@ -235,31 +467,26 @@ function Get-EventIdInventory {
                                 Write-Progress -Activity "Log: $log" -Status $status -PercentComplete $percent -Id 2 -ParentId 1
                             }
 
-                            $key = "$($ev.LogName)|$($ev.Id)"
+                            # Key includes ProviderName: EventID is only unique
+                            # WITHIN one provider's manifest - the same number under
+                            # two different providers writing to the same log is two
+                            # unrelated event types, not one.
+                            $providerName = Get-SafeDisplayName { $ev.ProviderName }
+                            $key = "$($ev.LogName)|$providerName|$($ev.Id)"
 
                             if (-not $results.Contains($key)) {
-                                $desc = $null
-                                try {
-                                    $msg = $ev.Message
-                                    if ($msg) {
-                                        $desc = ($msg -split "`r?`n")[0].Trim()
-                                        if ($desc.Length -gt 200) { $desc = $desc.Substring(0, 200) + '...' }
-                                    }
-                                } catch {
-                                    # The record itself read fine, but its message
-                                    # text specifically can't be resolved - same
-                                    # root cause as above (broken provider/manifest
-                                    # reference), just caught at a finer grain here.
-                                    $desc = '(description unavailable - provider/manifest not found)'
-                                }
-                                if (-not $desc) { $desc = '(description unavailable - provider/manifest not found)' }
-
                                 $results[$key] = [ordered]@{
                                     LogName      = $ev.LogName
                                     EventID      = $ev.Id
-                                    ProviderName = $ev.ProviderName
-                                    Level        = $ev.LevelDisplayName
-                                    Description  = $desc
+                                    ProviderName = $providerName
+                                    Level        = Get-SafeDisplayName { $ev.LevelDisplayName }
+                                    LevelRaw     = Get-SafeDisplayName { $ev.Level }
+                                    Task         = Get-SafeDisplayName { $ev.TaskDisplayName }
+                                    TaskRaw      = Get-SafeDisplayName { $ev.Task }
+                                    Opcode       = Get-SafeDisplayName { $ev.OpcodeDisplayName }
+                                    Keywords     = Get-SafeDisplayName { ($ev.KeywordsDisplayNames -join '; ') }
+                                    Description     = $DescriptionUnavailable
+                                    SampleEventData = $null
                                     Users        = New-Object System.Collections.Generic.HashSet[string]
                                     Count        = 0
                                     FirstSeen    = $ev.TimeCreated
@@ -268,6 +495,48 @@ function Get-EventIdInventory {
                             }
 
                             $entry = $results[$key]
+
+                            # Try to resolve a real description from THIS occurrence
+                            # if we don't have one yet. Note: this is deliberately
+                            # NOT gated to "only on the first occurrence" - the very
+                            # first record seen for an EventID can itself be one
+                            # whose message can't be resolved, in which case later
+                            # occurrences get a chance to fill it in instead of the
+                            # placeholder being locked in forever. Keep the FULL
+                            # message now (flattened to one line), not just its
+                            # first line - the parameter values that distinguish
+                            # "routine" from "worth a look" for the same EventID are
+                            # often on line two or three, not line one.
+                            if ($entry.Description -eq $DescriptionUnavailable) {
+                                try {
+                                    # Use FormatDescription() directly rather than the
+                                    # ".Message" convenience property: records read via
+                                    # EventLogReader.ReadEvent() (as opposed to
+                                    # Get-WinEvent's own output) do not reliably expose
+                                    # a populated ".Message" - it comes back empty even
+                                    # for perfectly fine records with a real manifest.
+                                    $msg = $ev.FormatDescription()
+                                    if ($msg) {
+                                        $desc = ($msg.Trim() -replace "`r?`n", ' | ')
+                                        if ($desc.Length -gt 800) { $desc = $desc.Substring(0, 800) + '...' }
+                                        if ($desc) { $entry.Description = $desc }
+                                    }
+                                } catch {
+                                    # Still unavailable for this occurrence too - leave
+                                    # the placeholder, a later occurrence may succeed.
+                                }
+                            }
+
+                            # Same retry-until-filled pattern for SampleEventData: it
+                            # doesn't need FormatDescription()/the message table to
+                            # succeed at all, so it's frequently the ONLY source of
+                            # real parameter values (account name, process, privilege
+                            # list, ...) for providers with a broken/missing manifest
+                            # where Description never resolves past the placeholder.
+                            if (-not $entry.SampleEventData) {
+                                $entry.SampleEventData = Get-EventDataSummary -Event $ev
+                            }
+
                             $entry.Count++
                             if ($ev.TimeCreated -and $ev.TimeCreated -lt $entry.FirstSeen) { $entry.FirstSeen = $ev.TimeCreated }
                             if ($ev.TimeCreated -and $ev.TimeCreated -gt $entry.LastSeen)  { $entry.LastSeen  = $ev.TimeCreated }
@@ -288,6 +557,9 @@ function Get-EventIdInventory {
                 if ($totalUnreadable -gt 0) { $summary += " ({0} unreadable record(s) skipped)" -f $totalUnreadable }
                 Write-Info $summary
 
+                $totalEventsProcessed += $i
+                $logsProcessedOk++
+
             } catch {
                 $errMsg = "Log '$log': $($_.Exception.Message)"
                 $errors.Add($errMsg)
@@ -301,36 +573,105 @@ function Get-EventIdInventory {
         Write-Progress -Activity "Collecting events by log" -Completed -Id 1
 
         $export = foreach ($entry in $results.Values) {
+            $durationMinutes = $null
+            if ($entry.FirstSeen -and $entry.LastSeen) {
+                # Minutes between the earliest and latest occurrence seen for
+                # this row - a quick signal for whether a high Count is spread
+                # over a long, ordinary window or crammed into a short burst
+                # (or, on Security in particular, whether the window is
+                # suspiciously short because the log is rotating too fast to
+                # hold real history at all - see the 4673 note above).
+                $durationMinutes = [Math]::Round((New-TimeSpan -Start $entry.FirstSeen -End $entry.LastSeen).TotalMinutes, 2)
+            }
+
+            # EventsPerMinute / Density: a self-contained, first-pass read on
+            # how "busy" this row's traffic is, built only from Count and
+            # DurationMinutes - no SIEM coverage data or external baseline
+            # involved.
+            $eventsPerMinute = $null
+            if ($null -eq $durationMinutes) {
+                # Only happens if TimeCreated itself was missing on every
+                # occurrence of this row (rare) - no window to rate at all,
+                # so say so explicitly rather than guessing.
+                $density = 'Unknown'
+            } else {
+                # 1-minute floor on the denominator avoids both a
+                # divide-by-zero (DurationMinutes 0, i.e. every occurrence
+                # landed in the same instant) and a handful of same-minute
+                # occurrences producing an absurdly inflated rate.
+                $effectiveMinutesForRate = [Math]::Max($durationMinutes, 1)
+                $eventsPerMinute = [Math]::Round($entry.Count / $effectiveMinutesForRate, 4)
+
+                $density = if ($entry.Count -lt $MinCountForDensity) {
+                    # Too few occurrences anywhere in the window to call this
+                    # a "flow" at all - not enough data points to rate a
+                    # density, regardless of what the rate math above says.
+                    'Low'
+                } elseif ($eventsPerMinute -ge $HighRateThreshold) {
+                    'High'
+                } elseif ($eventsPerMinute -ge $MidRateThreshold) {
+                    'Mid'
+                } else {
+                    'Low'
+                }
+            }
+
             [pscustomobject]@{
-                Workstation = $env:COMPUTERNAME
-                LogName     = $entry.LogName
-                EventID     = $entry.EventID
-                Provider    = $entry.ProviderName
-                Level       = $entry.Level
-                Description = $entry.Description
-                Users       = ($entry.Users -join '; ')
-                Count       = $entry.Count
-                FirstSeen   = $entry.FirstSeen
-                LastSeen    = $entry.LastSeen
+                Workstation      = $env:COMPUTERNAME
+                LogName          = $entry.LogName
+                EventID          = $entry.EventID
+                Provider         = $entry.ProviderName
+                Level            = $entry.Level
+                LevelRaw         = $entry.LevelRaw
+                Task             = $entry.Task
+                TaskRaw          = $entry.TaskRaw
+                Opcode           = $entry.Opcode
+                Keywords         = $entry.Keywords
+                Description      = $entry.Description
+                SampleEventData  = $entry.SampleEventData
+                Users            = ($entry.Users -join '; ')
+                Count            = $entry.Count
+                FirstSeen        = $entry.FirstSeen
+                LastSeen         = $entry.LastSeen
+                DurationMinutes  = $durationMinutes
+                EventsPerMinute  = $eventsPerMinute
+                Density          = $density
             }
         }
         $export = $export | Sort-Object LogName, EventID
 
+        # Resolved unconditionally (this does not touch disk) so the run
+        # summary below can always show the real path, -WhatIf included.
+        $resolvedCsvPath = $PSCmdlet.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputCsv)
+        $csvWasWritten = $false
+
         if ($PSCmdlet.ShouldProcess($OutputCsv, "Export EventID inventory to CSV")) {
-            $resolvedCsvPath = $PSCmdlet.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputCsv)
             $csvLines = $export | ConvertTo-Csv -NoTypeInformation
             [System.IO.File]::WriteAllLines($resolvedCsvPath, $csvLines, $Utf8BomEncoding)
-            Write-Info ("Done: {0} unique (log, EventID) pair(s) saved to {1}" -f $export.Count, $OutputCsv)
-        } else {
-            Write-Info ("WhatIf: would have saved {0} unique (log, EventID) pair(s) to {1}" -f $export.Count, $OutputCsv)
+            $csvWasWritten = $true
         }
 
         if ($errors.Count -gt 0) {
             Write-Info ("{0} log(s) could not be fully processed - most likely cause is insufficient permissions. See NOTES in the function's help (Get-Help Get-EventIdInventory -Full)." -f $errors.Count) -Level WARN
         }
 
-        # Emit the collected objects to the pipeline as well as the CSV,
-        # so the function composes like a normal cmdlet.
-        $export
+        # Run summary instead of dumping every collected object to the
+        # console: the CSV already holds the full data with every column -
+        # this is just the "did it work, how much did it do" answer.
+        $ScriptEndTime = Get-Date
+        $totalDuration = New-TimeSpan -Start $ScriptStartTime -End $ScriptEndTime
+        $logsFailedSuffix = if ($errors.Count -gt 0) { " ($($errors.Count) failed)" } else { "" }
+        $csvStatusLine = if ($csvWasWritten) { $resolvedCsvPath } else { "$resolvedCsvPath (WhatIf - not written)" }
+
+        Write-Host ""
+        Write-Host "==================== Run summary ====================" -ForegroundColor Cyan
+        Write-Host ("Start time         : {0}" -f $ScriptStartTime.ToString('yyyy-MM-dd HH:mm:ss'))
+        Write-Host ("End time           : {0}" -f $ScriptEndTime.ToString('yyyy-MM-dd HH:mm:ss'))
+        Write-Host ("Duration           : {0:hh\:mm\:ss}" -f $totalDuration)
+        Write-Host ("Logs processed     : {0} of {1} attempted{2}" -f $logsProcessedOk, $logCounter, $logsFailedSuffix)
+        Write-Host ("Events processed   : {0}" -f $totalEventsProcessed)
+        Write-Host ("Unique rows in CSV : {0}" -f $export.Count)
+        Write-Host ("CSV file           : {0}" -f $csvStatusLine)
+        Write-Host "======================================================" -ForegroundColor Cyan
     }
 }
